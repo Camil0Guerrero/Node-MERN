@@ -1,76 +1,96 @@
 import express from 'express'
 
-import users from '../data.js'
+import User from '../../models/User.js'
 
 const router = express.Router()
 
 router.get('/', (_, res) => {
-	res.status(200).json(users)
+	// Este proceso lo hacemos para poder devolver los datos de la base de datos con el método toJSON() que nos permite eliminar y manipular los datos. Esto lo hicimos en el modelo User.js
+	User.find({}).then(users => {
+		res.json(
+			users.map(user => {
+				return user.toJSON()
+			})
+		)
+	})
 })
 
-router.get('/:id', (req, res) => {
-	const id = +req.params.id,
-		user = users.find(user => user.id === id)
+router.get('/:id', (req, res, next) => {
+	const { id } = req.params
 
-	if (!user) {
-		res.status(404).json({ message: `User with id ${id} not found` })
+	User.findById(id)
+		.then(user => {
+			if (user) {
+				return res.json(user.toJSON())
+			} else {
+				res.status(404).json({ message: 'User not found' })
+				return
+			}
+		})
+		.catch(next)
+})
+
+router.post('/', (req, res, next) => {
+	const user = req.body
+
+	if (!user.name || !user.email || !user.password) {
+		res.status(400).json({ message: 'Missing fields' })
 		return
 	}
 
-	res.status(200).json(user)
+	User.findOne({ email: user.email }).then(user => {
+		if (user) return res.status(400).json({ message: 'User already exists' })
+	})
+
+	// De esta forma podemos manipular los datos antes de guardarlos en la base de datos, por ejemplo, encriptaremos la contraseña posteriormente
+	const newUser = new User({
+		name: user.name,
+		email: user.email,
+		password: user.password,
+		balance: user.balance || 0,
+		movements: user.movements || [],
+	})
+
+	newUser
+		.save()
+		.then(() => {
+			res.status(201).json({ message: 'User created' })
+		})
+		.catch(next)
 })
 
-router.post('/movements', (req, res) => {
-	if (!req.body.id) {
-		res.status(400).json({ message: 'Missing id' })
+router.put('/:id', (req, res, next) => {
+	const { id } = req.params
+
+	const user = req.body
+
+	if (!user.name || !user.email || !user.password) {
+		res.status(400).json({ message: 'Missing fields' })
 		return
 	}
 
-	const id = +req.body.id,
-		movements = users.find(user => user.id === id)?.movements
-
-	if (!movements) {
-		res.status(401).json({ message: 'User not found' })
-	}
-
-	res.status(200).json(movements)
+	// Mongoose nos facilita el actualizar los datos de un documento, ya que no debemos hacerlo con el $set como en MongoDB nativo. Este actualizara solo los datos que se hayan modificado
+	User.findByIdAndUpdate(id, user)
+		.then(() => {
+			return res.status(200).json({ message: 'User updated' })
+		})
+		.catch(next)
 })
 
-router.post('/', (req, res) => {
-	const newUser = req.body,
-		id = Math.max(...users.map(user => user.id)) + 1
+router.delete('/:id', (req, res, next) => {
+	const { id } = req.params
 
-	newUser.id = id
-	users.push(newUser)
+	User.findByIdAndDelete(id)
+		.then(result => {
+			if (!result) {
+				res.status(404).json({ message: 'User not found' })
+				return
+			}
 
-	res.status(201).json(users)
-})
-
-router.put('/:id', (req, res) => {
-	const id = parseInt(req.params.id),
-		userIndex = users.findIndex(user => user.id === id)
-
-	if (userIndex === -1) {
-		res.status(404).json({ message: `User with id ${id} not found` })
-		return
-	}
-
-	users[userIndex] = { ...users[userIndex], ...req.body }
-
-	res.status(200).json({ message: 'User updated' })
-})
-
-router.delete('/:id', (req, res) => {
-	const id = +req.params.id,
-		userIndex = users.findIndex(user => user.id === id)
-
-	if (userIndex === -1) {
-		res.status(404).json({ message: `User with id ${id} not found` })
-		return
-	}
-
-	users.splice(userIndex, 1)
-	res.status(200).json({ message: 'User deleted' })
+			// Si vamos a devolver como en mi caso un json, el 200 es el código recomendado. Si no vamos a enviar nada podemos usar el 204
+			return res.status(200).json({ message: 'User deleted' })
+		})
+		.catch(next)
 })
 
 export default router
