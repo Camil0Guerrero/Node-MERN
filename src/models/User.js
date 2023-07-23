@@ -1,7 +1,6 @@
 import { Schema, model } from 'mongoose'
 
 // El email sera nuestra clave primaria, para ello debemos indicarlo en el esquema con unique: true
-
 const userSchema = new Schema({
 	name: String,
 	email: {
@@ -17,6 +16,7 @@ userSchema.set('toJSON', {
 		returnedObject.id = returnedObject._id
 		delete returnedObject._id
 		delete returnedObject.__v
+		delete returnedObject.password
 	},
 })
 

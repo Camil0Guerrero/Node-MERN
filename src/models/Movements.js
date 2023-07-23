@@ -7,7 +7,7 @@ const MovementSchema = new Schema({
 			amount: { type: Number, required: true },
 			date: { type: Date, required: true },
 			description: { type: String, required: false },
-			name: { type: String, required: true },
+			destination: { type: String, required: true },
 			type: { type: String, required: true },
 		},
 	],

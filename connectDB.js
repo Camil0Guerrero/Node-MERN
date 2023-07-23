@@ -1,10 +1,10 @@
 import mongoose from 'mongoose'
+const { MONGO_DB_URI, MONGO_DB_URI_TEST, NODE_ENV } = process.env
 
-// En la misma url podemos crear una base de datos nueva, en este caso la llamaremos Mern, si esta ya existe, se conectara a ella
-const MONGO_URL = 'mongodb://localhost:27017/Mern'
+const connectionString = NODE_ENV === 'test' ? MONGO_DB_URI_TEST : MONGO_DB_URI
 
 mongoose
-	.connect(MONGO_URL, {
+	.connect(connectionString, {
 		useNewUrlParser: true,
 		useUnifiedTopology: true,
 	})

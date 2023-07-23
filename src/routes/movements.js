@@ -1,108 +1,98 @@
-import express from 'express'
-import User from '../../models/User.js'
-import Movement from '../../models/Movements.js'
+import { Router } from 'express'
+import User from '../models/User.js'
+import validations from '../middleware/validations.js'
+import userExtractor from '../middleware/userExtractor.js'
+import Movement from '../models/Movements.js'
+import AddMovement from '../services/AddMovement.js'
 
-const movements = express.Router()
+const movements = Router()
 
-movements.post('/', (req, res, next) => {
-	const { amount, description, email, type } = req.body
+movements.get('/', userExtractor, async (req, res, next) => {
+	try {
+		const { id } = req.body
 
-	if (!+amount || !description || !email || !type) {
-		res.status(400).json({ message: 'Missing' })
-		return
-	}
+		const movement = await Movement.findById(id)
 
-	if (!['transfer'].includes(type)) {
-		res.status(400).json({ message: 'Invalid type' })
-		return
-	}
-
-	// En este caso creo que lo mejor era hacerlo de esta forma ya que necesitaba hacer la validaciones, usando then y catch se complicaba mas y era menos legible
-	const transfer = async () => {
-		try {
-			const user = await User.findOne({ email }).then(response =>
-				response.toJSON()
-			)
-
-			if (user) {
-				const movement = await Movement.findById({ _id: user.id }).then(
-					movement => movement.toJSON()
-				)
-
-				if (movement) {
-					movement.movements.push({
-						amount: +amount,
-						date: new Date(),
-						description,
-						name: user.name,
-						type,
-					})
-
-					await User.findByIdAndUpdate(
-						{ _id: user.id },
-						{
-							balance: user.balance + amount,
-						}
-					).catch(next)
-
-					await Movement.findByIdAndUpdate(
-						{ _id: user.id },
-						{
-							movements: movement.movements,
-						}
-					).catch(next)
-
-					console.log('Transfer successful')
-					res.status(200).json({ message: 'Transfer successful' })
-					return
-				} else {
-					await Movement.create({
-						_id: user._id,
-						movements: [
-							{
-								amount: +amount,
-								date: new Date(),
-								description,
-								name: user.name,
-								type,
-							},
-						],
-					}).catch(next)
-
-					user.balance += amount
-					await user.save().catch(next)
-
-					console.log('Created movement and transfer')
-					res.status(200).json({ message: 'Transfer successful' })
-					return
-				}
-			} else {
-				res.status(404).json({ message: 'User not found' })
-				return
-			}
-		} catch (error) {
-			next(error)
-		}
-	}
-
-	transfer()
-})
-
-movements.get('/', (req, res) => {
-	const { id } = req.params
-
-	Movement.find({ _id: id }).then(movements => {
-		if (!movements) {
+		if (!movement) {
 			res.status(404).json({ message: 'User not found' })
 			return
 		}
 
-		res.status(200).json(
-			movements.map(movement => {
-				return movement.toJSON()
-			})
-		)
-	})
+		res.status(200).json(movement.movements)
+	} catch (error) {
+		next(error)
+	}
+})
+
+movements.post('/', userExtractor, async (req, res, next) => {
+	try {
+		const { id } = req.body
+
+		const user = await User.findById(id)
+
+		if (!user) {
+			res.status(404).json({ message: 'User not found' })
+			return
+		}
+	} catch (err) {
+		next(err)
+	}
+})
+
+movements.put('/transfer', userExtractor, validations, async (req, res, next) => {
+	try {
+		const { id } = req.body
+		const { email, amount, description, type } = req.body
+
+		const userToRecharge = await User.findOne({ email })
+		const userToRest = await User.findById(id)
+
+		if (!userToRecharge || !userToRest) {
+			res.status(404).json({ message: 'User not found' })
+			return
+		}
+
+		userToRecharge.balance += +amount
+		userToRest.balance -= +amount
+
+		await AddMovement({
+			id,
+			amount,
+			description,
+			destination: userToRecharge.name,
+			type,
+		})
+
+		await userToRecharge.save()
+		await userToRest.save()
+
+		res.status(200).json({ message: 'Transfer successfully' })
+	} catch (error) {
+		next(error)
+	}
+})
+
+movements.delete('/:id', async (req, res, next) => {
+	try {
+		const { id } = req.params
+		const validate = validations({ id })
+		if (validate.id) {
+			res.status(400).json({ error: validate.id })
+			return
+		}
+
+		const userDeleted = await User.findByIdAndDelete(id)
+
+		if (!userDeleted) {
+			res.status(404).json({ message: 'User not found' })
+			return
+		}
+
+		// Si vamos a devolver como en mi caso un json, el 200 es el código recomendado. Si no vamos a enviar nada podemos usar el 204
+		res.status(200).json({ message: 'User deleted' })
+	} catch (error) {
+		next(error)
+	}
 })
 
 export default movements

@@ -1,96 +1,122 @@
-import express from 'express'
+import { Router } from 'express'
+import User from '../models/User.js'
+import bcrypt from 'bcryptjs'
+import validations from '../middleware/validations.js'
+import userExtractor from '../middleware/userExtractor.js'
 
-import User from '../../models/User.js'
+const router = Router()
 
-const router = express.Router()
+router.get('/', userExtractor, async (req, res, next) => {
+	try {
+		const { id } = req.body
 
-router.get('/', (_, res) => {
-	// Este proceso lo hacemos para poder devolver los datos de la base de datos con el método toJSON() que nos permite eliminar y manipular los datos. Esto lo hicimos en el modelo User.js
-	User.find({}).then(users => {
-		res.json(
-			users.map(user => {
-				return user.toJSON()
-			})
-		)
-	})
-})
+		const user = await User.findById(id)
 
-router.get('/:id', (req, res, next) => {
-	const { id } = req.params
+		if (!user) {
+			res.status(404).json({ message: 'User not found' })
+			return
+		}
 
-	User.findById(id)
-		.then(user => {
-			if (user) {
-				return res.json(user.toJSON())
-			} else {
-				res.status(404).json({ message: 'User not found' })
-				return
-			}
-		})
-		.catch(next)
-})
-
-router.post('/', (req, res, next) => {
-	const user = req.body
-
-	if (!user.name || !user.email || !user.password) {
-		res.status(400).json({ message: 'Missing fields' })
-		return
+		res.status(200).json(user)
+	} catch (error) {
+		next(error)
 	}
-
-	User.findOne({ email: user.email }).then(user => {
-		if (user) return res.status(400).json({ message: 'User already exists' })
-	})
-
-	// De esta forma podemos manipular los datos antes de guardarlos en la base de datos, por ejemplo, encriptaremos la contraseña posteriormente
-	const newUser = new User({
-		name: user.name,
-		email: user.email,
-		password: user.password,
-		balance: user.balance || 0,
-		movements: user.movements || [],
-	})
-
-	newUser
-		.save()
-		.then(() => {
-			res.status(201).json({ message: 'User created' })
-		})
-		.catch(next)
 })
 
-router.put('/:id', (req, res, next) => {
-	const { id } = req.params
+router.post('/', async (req, res, next) => {
+	try {
+		const { name, email, password, balance = 0 } = req.body
 
-	const user = req.body
+		const validate = validations({ name, email, password, balance })
+		if (validate.name || validate.email || validate.password || validate.balance) {
+			res.status(400).json({ error: validate })
+			return
+		}
 
-	if (!user.name || !user.email || !user.password) {
-		res.status(400).json({ message: 'Missing fields' })
-		return
+		const userExist = await User.findOne({ email })
+
+		if (userExist) {
+			res.status(400).json({ message: 'User already exists' })
+			return
+		}
+
+		// Encriptar contraseña
+		const salt = bcrypt.genSaltSync(10)
+		const passwordHash = bcrypt.hashSync(password, salt)
+
+		const newUser = new User({
+			name,
+			email,
+			password: passwordHash,
+			balance,
+		})
+
+		const userCreated = await newUser.save()
+
+		if (!userCreated) {
+			res.status(400).json({ message: 'User not created' })
+			return
+		}
+
+		res.status(200).json(userCreated)
+	} catch (error) {
+		next(error)
 	}
-
-	// Mongoose nos facilita el actualizar los datos de un documento, ya que no debemos hacerlo con el $set como en MongoDB nativo. Este actualizara solo los datos que se hayan modificado
-	User.findByIdAndUpdate(id, user)
-		.then(() => {
-			return res.status(200).json({ message: 'User updated' })
-		})
-		.catch(next)
 })
 
-router.delete('/:id', (req, res, next) => {
-	const { id } = req.params
+router.put('/:id', async (req, res, next) => {
+	try {
+		const { id } = req.params
+		const user = req.body
 
-	User.findByIdAndDelete(id)
-		.then(result => {
-			if (!result) {
-				res.status(404).json({ message: 'User not found' })
-				return
-			}
+		const validate = validations({ id, ...user })
 
-			// Si vamos a devolver como en mi caso un json, el 200 es el código recomendado. Si no vamos a enviar nada podemos usar el 204
-			return res.status(200).json({ message: 'User deleted' })
-		})
-		.catch(next)
+		if (validate.id) {
+			res.status(400).json({ error: validate.id })
+			return
+		}
+
+		if (validate.name || validate.email || validate.password || validate.balance) {
+			res.status(400).json({ error: validate })
+			return
+		}
+
+		// Mongoose nos facilita el actualizar los datos de un documento, ya que no debemos hacerlo con el $set como en MongoDB nativo. Este actualizara solo los datos que se hayan modificado
+		// El tercer parámetro es para que nos devuelva el documento actualizado
+		const userUpdated = await User.findByIdAndUpdate(id, user, { new: true })
+
+		if (!userUpdated) {
+			res.status(404).json({ message: 'User not found' })
+			return
+		}
+
+		res.status(200).json(userUpdated)
+	} catch (error) {
+		next(error)
+	}
+})
+
+router.delete('/:id', async (req, res, next) => {
+	try {
+		const { id } = req.params
+		const validate = validations({ id })
+		if (validate.id) {
+			res.status(400).json({ error: validate.id })
+			return
+		}
+
+		const userDeleted = await User.findByIdAndDelete(id)
+
+		if (!userDeleted) {
+			res.status(404).json({ message: 'User not found' })
+			return
+		}
+
+		// Si vamos a devolver como en mi caso un json, el 200 es el código recomendado. Si no vamos a enviar nada podemos usar el 204
+		res.status(200).json({ message: 'User deleted' })
+	} catch (error) {
+		next(error)
+	}
 })
 
 export default router
